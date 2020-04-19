@@ -1,0 +1,64 @@
+version: '3.7'
+services:
+  mysql:
+    image: mysql:$MYSQL_TAG
+    command: --max_allowed_packet=32505856
+    container_name: '${PROJECT_NAME}_mysql'
+    entrypoint:
+      [
+        '/entrypoint.sh',
+        '--default-authentication-plugin=mysql_native_password',
+      ]
+    ports: ['3306:3306']
+    environment:
+      MYSQL_ROOT_PASSWORD: $DB_ROOT_PASSWORD
+      MYSQL_USER: $DB_USER
+      MYSQL_PASSWORD: $DB_PASSWORD
+      MYSQL_DATABASE: $DB_NAME
+      # volumes:
+      #   - './dbdata:/var/lib/mysql'
+      # restart: always
+
+  php:
+    build: ./docker/php
+    container_name: '${PROJECT_NAME}_php'
+    ports: ['9000:9001']
+    links:
+      - mysql
+    volumes:
+      - ./symfony/:/var/www/symfony:cached
+
+  nginx:
+    build: ./docker/nginx
+    ports: ['8100:8100']
+    links:
+      - php
+    volumes:
+      - ./logs/nginx:/var/log/nginx:cached
+      - ./symfony/:/var/www/symfony:cached
+    labels:
+      - 'traefik.http.routers.${PROJECT_NAME}_nginx.rule=Host(`app.${PROJECT_BASE_URL}`)'
+
+  pma:
+    image: phpmyadmin/phpmyadmin
+    container_name: '${PROJECT_NAME}_pma'
+    environment:
+      PMA_HOST: $DB_HOST
+      PMA_USER: $DB_USER
+      PMA_PASSWORD: $DB_PASSWORD
+      # PMA_ARBITRARY: 1
+      PHP_UPLOAD_MAX_FILESIZE: 1G
+      PHP_MAX_INPUT_VARS: 1G
+      PHP_POST_MAX_SIZE: 64M
+    labels:
+      - 'traefik.http.routers.${PROJECT_NAME}_pma.rule=Host(`pma.${PROJECT_BASE_URL}`)'
+
+  traefik:
+    image: traefik:v2.0
+    container_name: '${PROJECT_NAME}_traefik'
+    command: --api.insecure=true --providers.docker
+    ports:
+      - '80:80'
+      - '8080:8080' # Dashboard
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
